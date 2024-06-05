@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:location/location.dart';
-import 'package:smooth_compass_plus/utils/src/qibla_utils.dart';
-import 'package:sensors_plus/sensors_plus.dart';
+// import 'package:sensors_plus/sensors_plus.dart';
 
 import '../smooth_compass_plus.dart';
 import 'widgets/error_widget.dart';
@@ -53,46 +52,46 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
   void initState() {
     super.initState();
     _initializeCompassStream();
-    accelerometerEvents.listen((AccelerometerEvent event) {
-      if (_compassStream == null) {
-        setState(() {
-          currentHeading = (event.x + event.y + event.z) % 360;
-        });
-      }
-    });
+    // accelerometerEvents.listen((AccelerometerEvent event) {
+    //   if (_compassStream == null) {
+    //     setState(() {
+    //       currentHeading = (event.x + event.y + event.z) % 360;
+    //     });
+    //   }
+    // });
   }
 
   void _initializeCompassStream() {
     Compass().isCompassAvailable().then((isAvailable) {
-      if (isAvailable) {
-        setState(() {
-          _compassStream = Compass().compassUpdates(
-            interval: const Duration(milliseconds: 200),
-            azimuthFix: 0.0,
+      // if (isAvailable) {
+      //   setState(() {
+      //     _compassStream = Compass().compassUpdates(
+      //       interval: const Duration(milliseconds: 200),
+      //       azimuthFix: 0.0,
+      //     );
+      //   });
+      // } else {
+      _getLocation().then((locationData) {
+        if (locationData != null) {
+          qiblahOffset = _calculateQiblahOffset(
+            locationData.latitude ?? 0,
+            locationData.longitude ?? 0,
           );
-        });
-      } else {
-        _getLocation().then((locationData) {
-          if (locationData != null) {
-            qiblahOffset = _calculateQiblahOffset(
-              locationData.latitude ?? 0,
-              locationData.longitude ?? 0,
+          setState(() {
+            _compassStream = Stream.periodic(
+              const Duration(milliseconds: 200),
+                  (_) {
+                return CompassModel(
+                  turns: currentHeading / 360,
+                  angle: currentHeading,
+                  qiblahOffset: qiblahOffset,
+                );
+              },
             );
-            setState(() {
-              _compassStream = Stream.periodic(
-                const Duration(milliseconds: 200),
-                    (_) {
-                  return CompassModel(
-                    turns: currentHeading / 360,
-                    angle: currentHeading,
-                    qiblahOffset: qiblahOffset,
-                  );
-                },
-              );
-            });
-          }
-        });
-      }
+          });
+        }
+      });
+      // }
     });
   }
 
@@ -165,8 +164,6 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
     );
   }
 
-
-
   /// Default widget if custom widget isn't provided
   Widget _defaultWidget(
       AsyncSnapshot<CompassModel> snapshot, BuildContext context) {
@@ -218,7 +215,3 @@ class CompassModel {
   CompassModel(
       {required this.turns, required this.angle, required this.qiblahOffset});
 }
-
-
-/// Default widget if custom widget isn't provided
-
