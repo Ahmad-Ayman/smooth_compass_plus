@@ -7,9 +7,9 @@ class CustomErrorWidget extends StatelessWidget {
 
   const CustomErrorWidget(
       {Key? key,
-      required this.onTap,
-      required this.title,
-      required this.errMsg})
+        required this.onTap,
+        required this.title,
+        required this.errMsg})
       : super(key: key);
 
   @override

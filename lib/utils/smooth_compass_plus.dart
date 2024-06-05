@@ -33,7 +33,7 @@ class Compass {
   ///
   ///Remember to close the stream after using it.
   Stream<CompassModel> compassUpdates(
-          {Duration? interval, double? azimuthFix, MyLoc? currentLoc}) =>
+      {Duration? interval, double? azimuthFix, MyLoc? currentLoc}) =>
       _compass.compassUpdates(interval!, azimuthFix!, myLoc: currentLoc);
 
   /// Checks if the sensors needed for the compass to work are available.

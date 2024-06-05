@@ -10,9 +10,9 @@ class Utils {
 
   /// returns the qiblah offset for the current location
   static double getOffsetFromNorth(
-    double currentLatitude,
-    double currentLongitude,
-  ) {
+      double currentLatitude,
+      double currentLongitude,
+      ) {
     var laRad = radians(currentLatitude);
     var loRad = radians(currentLongitude);
 

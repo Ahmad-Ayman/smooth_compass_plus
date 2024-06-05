@@ -11,7 +11,7 @@ class _Compass {
   // ignore: cancel_subscriptions
   StreamSubscription<SensorEvent>? _rotationSensorStream;
   final StreamController<double> _internalUpdateController =
-      StreamController.broadcast();
+  StreamController.broadcast();
 
   /// Starts the compass updates.
   Stream<CompassModel> compassUpdates(Duration? interval, double azimuthFix,
@@ -20,9 +20,17 @@ class _Compass {
     // ignore: close_sinks
     StreamController<CompassModel>? compassStreamController;
     _CompassStreamSubscription? compassStreamSubscription;
+
+    Future<void> _handleGPS() async {
+      if (myLoc != null) {
+        double qiblahOffset = getQiblaDirection(myLoc.latitude, myLoc.longitude, 0);
+        compassStreamController?.add(CompassModel(turns: 0, angle: 0, qiblahOffset: qiblahOffset));
+      }
+    }
+
     // ignore: cancel_subscriptions
     StreamSubscription<double> compassSubscription =
-        _internalUpdateController.stream.listen((value) {
+    _internalUpdateController.stream.listen((value) {
       if (interval != null) {
         DateTime instant = DateTime.now();
         int difference = instant
@@ -44,9 +52,13 @@ class _Compass {
     compassStreamSubscription = _CompassStreamSubscription(compassSubscription);
     _updatesSubscriptions.add(compassStreamSubscription);
     compassStreamController = StreamController<CompassModel>.broadcast(
-      onListen: () {
-        if (_sensorStarted()) return;
-        _startSensor();
+      onListen: () async {
+        if (await isCompassAvailable) {
+          if (_sensorStarted()) return;
+          _startSensor();
+        } else {
+          await _handleGPS();
+        }
       },
       onCancel: () {
         compassStreamSubscription!.subscription.cancel();
@@ -59,7 +71,10 @@ class _Compass {
 
   /// Checks if the rotation sensor is available in the system.
   static Future<bool> get isCompassAvailable async {
-    return SensorManager().isSensorAvailable(Sensors.ROTATION);
+    bool isRotationAvailable = await SensorManager().isSensorAvailable(Sensors.ROTATION);
+    bool isGyroscopeAvailable = await SensorManager().isSensorAvailable(Sensors.GYROSCOPE);
+
+    return isRotationAvailable || isGyroscopeAvailable;
   }
 
   /// Determines which sensor is available and starts the updates if possible.
