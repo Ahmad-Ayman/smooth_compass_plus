@@ -18,6 +18,7 @@ dependencies:
   vector_math: ^2.1.4
   location: ^5.0.3
   sensors_plus:
+  logger: ^1.0.0
 platforms:
   android:
   ios:

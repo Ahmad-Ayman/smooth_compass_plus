@@ -7,30 +7,49 @@ class _Compass {
   double qiblah = 0.0;
   double x = 0, y = 0;
   final List<_CompassStreamSubscription> _updatesSubscriptions = [];
+  final Location location = Location(); // Initialize Location instance
+  final Logger logger = Logger(); // Initialize Logger instance
 
   // ignore: cancel_subscriptions
   StreamSubscription<SensorEvent>? _rotationSensorStream;
-  final StreamController<double> _internalUpdateController =
-  StreamController.broadcast();
+  StreamSubscription<senPls.AccelerometerEvent>? _accelerometerSensorStream;
+  final StreamController<CompassModel> _internalUpdateController =
+      StreamController.broadcast();
 
   /// Starts the compass updates.
   Stream<CompassModel> compassUpdates(Duration? interval, double azimuthFix,
-      {MyLoc? myLoc}) {
+      {MyLoc? myLoc, bool forceGPS = false}) {
+    // Added forceGPS parameter
     this.azimuthFix = azimuthFix;
     // ignore: close_sinks
     StreamController<CompassModel>? compassStreamController;
     _CompassStreamSubscription? compassStreamSubscription;
 
     Future<void> _handleGPS() async {
+      // Original code for handling GPS with myLoc
       if (myLoc != null) {
-        double qiblahOffset = getQiblaDirection(myLoc.latitude, myLoc.longitude, 0);
-        compassStreamController?.add(CompassModel(turns: 0, angle: 0, qiblahOffset: qiblahOffset));
+        double qiblahOffset =
+            getQiblaDirection(myLoc.latitude, myLoc.longitude, 0);
+        compassStreamController?.add(CompassModel(
+            turns: 0, angle: 0, qiblahOffset: qiblahOffset, source: 'GPS'));
       }
+      // New code to handle GPS without myLoc
+      else {
+        LocationData? locationData = await _getLocation();
+        if (locationData != null) {
+          double qiblahOffset = getQiblaDirection(
+              locationData.latitude!, locationData.longitude!, 0);
+          compassStreamController?.add(CompassModel(
+              turns: 0, angle: 0, qiblahOffset: qiblahOffset, source: 'GPS'));
+          _startAccelerometerSensor(); // Start accelerometer to update heading
+        }
+      }
+      logger.i("Using GPS for Qiblah direction"); // Use logger instead of print
     }
 
     // ignore: cancel_subscriptions
-    StreamSubscription<double> compassSubscription =
-    _internalUpdateController.stream.listen((value) {
+    StreamSubscription<CompassModel> compassSubscription =
+        _internalUpdateController.stream.listen((value) {
       if (interval != null) {
         DateTime instant = DateTime.now();
         int difference = instant
@@ -43,8 +62,8 @@ class _Compass {
         }
       }
 
-      compassStreamController!.add(
-          getCompassValues(value, myLoc?.latitude ?? 0, myLoc?.longitude ?? 0));
+      compassStreamController!.add(getCompassValues(value.angle,
+          myLoc?.latitude ?? 0, myLoc?.longitude ?? 0, value.source));
     });
     compassSubscription.onDone(() {
       _updatesSubscriptions.remove(compassStreamSubscription);
@@ -53,11 +72,16 @@ class _Compass {
     _updatesSubscriptions.add(compassStreamSubscription);
     compassStreamController = StreamController<CompassModel>.broadcast(
       onListen: () async {
-        if (await isCompassAvailable) {
-          if (_sensorStarted()) return;
-          _startSensor();
-        } else {
+        if (forceGPS) {
+          // Check if forceGPS is true
           await _handleGPS();
+        } else {
+          if (await isCompassAvailable) {
+            if (_sensorStarted()) return;
+            _startSensor();
+          } else {
+            await _handleGPS();
+          }
         }
       },
       onCancel: () {
@@ -71,17 +95,32 @@ class _Compass {
 
   /// Checks if the rotation sensor is available in the system.
   static Future<bool> get isCompassAvailable async {
-    bool isRotationAvailable = await SensorManager().isSensorAvailable(Sensors.ROTATION);
-    bool isGyroscopeAvailable = await SensorManager().isSensorAvailable(Sensors.GYROSCOPE);
+    bool isRotationAvailable =
+        await SensorManager().isSensorAvailable(Sensors.ROTATION);
+    bool isGyroscopeAvailable =
+        await SensorManager().isSensorAvailable(Sensors.GYROSCOPE);
 
     return isRotationAvailable || isGyroscopeAvailable;
   }
 
   /// Determines which sensor is available and starts the updates if possible.
   void _startSensor() async {
-    bool isAvailable = await isCompassAvailable;
-    if (isAvailable) {
+    bool isRotationAvailable =
+        await SensorManager().isSensorAvailable(Sensors.ROTATION);
+    bool isGyroscopeAvailable =
+        await SensorManager().isSensorAvailable(Sensors.GYROSCOPE);
+
+    if (isRotationAvailable) {
       _startRotationSensor();
+      logger.i(
+          "Using Rotation Sensor for Qiblah direction"); // Use logger instead of print
+    } else if (isGyroscopeAvailable) {
+      // If gyroscope sensor implementation is available, you can add it here.
+      logger.i(
+          "Using Gyroscope Sensor for Qiblah direction"); // Use logger instead of print
+    } else {
+      // Fallback to GPS
+      await _handleGPS();
     }
   }
 
@@ -97,24 +136,48 @@ class _Compass {
         List<double> orientation = _computeOrientation();
         _azimuth = degrees(orientation[0]);
         _azimuth = (_azimuth + azimuthFix + 360) % 360;
+        _internalUpdateController.add(CompassModel(
+            turns: _azimuth / 360,
+            angle: _azimuth,
+            qiblahOffset: 0,
+            source: 'Rotation Sensor'));
       } else if (Platform.isIOS) {
         _azimuth = event.data[0];
+        _internalUpdateController.add(CompassModel(
+            turns: _azimuth / 360,
+            angle: _azimuth,
+            qiblahOffset: 0,
+            source: 'Rotation Sensor'));
       }
-      _internalUpdateController.add(_azimuth);
+    });
+  }
+
+  /// Starts the accelerometer sensor to update heading when using GPS.
+  void _startAccelerometerSensor() {
+    _accelerometerSensorStream = senPls.accelerometerEvents.listen((event) {
+      double newHeading = atan2(event.y, event.x) * (180 / pi);
+      if (newHeading < 0) newHeading += 360;
+      _internalUpdateController.add(CompassModel(
+          turns: newHeading / 360,
+          angle: newHeading,
+          qiblahOffset: 0,
+          source: 'GPS'));
     });
   }
 
   /// Checks if the sensors has been started.
   bool _sensorStarted() {
-    return _rotationSensorStream != null;
+    return _rotationSensorStream != null || _accelerometerSensorStream != null;
   }
 
   /// Stops the sensors updates subscribed.
   void _stopSensor() {
     if (_sensorStarted()) {
-      _rotationSensorStream!.cancel();
+      _rotationSensorStream?.cancel();
+      _accelerometerSensorStream?.cancel();
 
       _rotationSensorStream = null;
+      _accelerometerSensorStream = null;
     }
   }
 
@@ -167,6 +230,54 @@ class _Compass {
     orientation.add(asin(-_rotationMatrix[7]));
     orientation.add(atan2(-_rotationMatrix[6], _rotationMatrix[8]));
     return orientation;
+  }
+
+  Future<void> _handleGPS() async {
+    // Original code for handling GPS with myLoc
+    // New code to handle GPS without myLoc
+    LocationData? locationData = await _getLocation();
+    if (locationData != null) {
+      double qiblahOffset =
+          getQiblaDirection(locationData.latitude!, locationData.longitude!, 0);
+      _internalUpdateController.add(CompassModel(
+          turns: 0, angle: 0, qiblahOffset: qiblahOffset, source: 'GPS'));
+      _startAccelerometerSensor(); // Start accelerometer to update heading
+    }
+    logger.i("Using GPS for Qiblah direction"); // Use logger instead of print
+  }
+
+  Future<LocationData?> _getLocation() async {
+    bool hasPermission = await _checkLocationServiceAndPermissions();
+    if (!hasPermission) {
+      return null;
+    }
+
+    LocationData locationData;
+    try {
+      locationData = await location.getLocation();
+    } catch (e) {
+      return null;
+    }
+    return locationData;
+  }
+
+  Future<bool> _checkLocationServiceAndPermissions() async {
+    bool serviceEnabled = await location.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await location.requestService();
+      if (!serviceEnabled) {
+        return false;
+      }
+    }
+
+    PermissionStatus permissionGranted = await location.hasPermission();
+    if (permissionGranted == PermissionStatus.denied) {
+      permissionGranted = await location.requestPermission();
+      if (permissionGranted != PermissionStatus.granted) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 

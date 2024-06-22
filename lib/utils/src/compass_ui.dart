@@ -1,9 +1,10 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:location/location.dart';
-import 'package:smooth_compass_plus/utils/src/qibla_utils.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:smooth_compass_plus/utils/src/qibla_utils.dart';
 
 import '../smooth_compass_plus.dart';
 import 'widgets/error_widget.dart';
@@ -25,19 +26,21 @@ class SmoothCompassWidget extends StatefulWidget {
   final bool? isQiblahCompass;
   final Widget? errorLocationServiceWidget;
   final Widget? errorLocationPermissionWidget;
+  final bool forceGPS; // New property to force GPS usage
 
-  const SmoothCompassWidget(
-      {Key? key,
-        this.compassBuilder,
-        this.compassAsset,
-        this.rotationSpeed = 400,
-        this.height = 200,
-        this.width = 200,
-        this.isQiblahCompass = false,
-        this.errorLocationServiceWidget,
-        this.errorLocationPermissionWidget,
-        this.loadingAnimation})
-      : super(key: key);
+  const SmoothCompassWidget({
+    Key? key,
+    this.compassBuilder,
+    this.compassAsset,
+    this.rotationSpeed = 400,
+    this.height = 200,
+    this.width = 200,
+    this.isQiblahCompass = false,
+    this.errorLocationServiceWidget,
+    this.errorLocationPermissionWidget,
+    this.loadingAnimation,
+    this.forceGPS = false,
+  }) : super(key: key);
 
   @override
   State<SmoothCompassWidget> createState() => _SmoothCompassWidgetState();
@@ -48,52 +51,89 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
   Stream<CompassModel>? _compassStream;
   double currentHeading = 0.0;
   double qiblahOffset = 0.0;
+  double previousHeading = 0.0;
 
   @override
   void initState() {
     super.initState();
     _initializeCompassStream();
-    accelerometerEvents.listen((AccelerometerEvent event) {
-      if (_compassStream == null) {
-        setState(() {
-          currentHeading = (event.x + event.y + event.z) % 360;
-        });
-      }
-    });
   }
 
   void _initializeCompassStream() {
-    Compass().isCompassAvailable().then((isAvailable) {
-      if (isAvailable) {
-        setState(() {
-          _compassStream = Compass().compassUpdates(
-            interval: const Duration(milliseconds: 200),
-            azimuthFix: 0.0,
+    if (widget.forceGPS) {
+      _getLocation().then((locationData) {
+        if (locationData != null) {
+          qiblahOffset = _calculateQiblahOffset(
+            locationData.latitude ?? 0,
+            locationData.longitude ?? 0,
           );
-        });
-      } else {
-        _getLocation().then((locationData) {
-          if (locationData != null) {
-            qiblahOffset = _calculateQiblahOffset(
-              locationData.latitude ?? 0,
-              locationData.longitude ?? 0,
+          setState(() {
+            _compassStream = Stream.periodic(
+              const Duration(milliseconds: 200),
+              (_) {
+                return CompassModel(
+                  turns: currentHeading / 360,
+                  angle: currentHeading,
+                  qiblahOffset: qiblahOffset,
+                  source: 'GPS',
+                );
+              },
             );
+          });
+          accelerometerEvents.listen((AccelerometerEvent event) {
+            double newHeading = atan2(event.y, event.x) * (180 / pi);
+            if (newHeading < 0) newHeading += 360;
             setState(() {
-              _compassStream = Stream.periodic(
-                const Duration(milliseconds: 200),
-                    (_) {
-                  return CompassModel(
-                    turns: currentHeading / 360,
-                    angle: currentHeading,
-                    qiblahOffset: qiblahOffset,
-                  );
-                },
-              );
+              currentHeading =
+                  previousHeading + 0.1 * (newHeading - previousHeading);
+              previousHeading = currentHeading;
             });
-          }
-        });
-      }
-    });
+          });
+        }
+      });
+    } else {
+      Compass().isCompassAvailable().then((isAvailable) {
+        if (isAvailable) {
+          setState(() {
+            _compassStream = Compass().compassUpdates(
+              interval: const Duration(milliseconds: 200),
+              azimuthFix: 0.0,
+            );
+          });
+        } else {
+          _getLocation().then((locationData) {
+            if (locationData != null) {
+              qiblahOffset = _calculateQiblahOffset(
+                locationData.latitude ?? 0,
+                locationData.longitude ?? 0,
+              );
+              setState(() {
+                _compassStream = Stream.periodic(
+                  const Duration(milliseconds: 200),
+                  (_) {
+                    return CompassModel(
+                      turns: currentHeading / 360,
+                      angle: currentHeading,
+                      qiblahOffset: qiblahOffset,
+                      source: 'GPS',
+                    );
+                  },
+                );
+              });
+              accelerometerEvents.listen((AccelerometerEvent event) {
+                double newHeading = atan2(event.y, event.x) * (180 / pi);
+                if (newHeading < 0) newHeading += 360;
+                setState(() {
+                  currentHeading =
+                      previousHeading + 0.1 * (newHeading - previousHeading);
+                  previousHeading = currentHeading;
+                });
+              });
+            }
+          });
+        }
+      });
+    }
   }
 
   Future<bool> _checkLocationServiceAndPermissions() async {
@@ -144,69 +184,77 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
           return widget.loadingAnimation != null
               ? widget.loadingAnimation!
               : const Center(
-            child: CircularProgressIndicator(),
-          );
+                  child: CircularProgressIndicator(),
+                );
         }
         if (snapshot.hasError) {
           return widget.loadingAnimation != null
               ? widget.loadingAnimation!
               : const Center(
-            child: CircularProgressIndicator(),
-          );
+                  child: CircularProgressIndicator(),
+                );
         }
-        return widget.compassBuilder == null
-            ? _defaultWidget(snapshot, context)
-            : widget.compassBuilder!(
-            context,
-            snapshot,
-            widget.compassAsset ??
-                Container()); // Replace with your default asset
+        return Column(
+          children: [
+            Text(
+                'Using ${snapshot.data?.source ?? 'Sensor'}'), // Display the source
+            widget.compassBuilder == null
+                ? _defaultWidget(snapshot, context)
+                : widget.compassBuilder!(
+                    context,
+                    snapshot,
+                    widget.compassAsset ??
+                        Container()), // Replace with your default asset
+          ],
+        );
       },
     );
   }
 
-
-
   /// Default widget if custom widget isn't provided
   Widget _defaultWidget(
       AsyncSnapshot<CompassModel> snapshot, BuildContext context) {
-    return AnimatedRotation(
-      turns: snapshot.data!.turns,
-      duration: Duration(milliseconds: widget.rotationSpeed!),
-      child: Container(
-        height: widget.height ?? MediaQuery.of(context).size.shortestSide * 0.8,
-        width: widget.width ?? MediaQuery.of(context).size.shortestSide * 0.8,
-        decoration: const BoxDecoration(
-            image: DecorationImage(
-                image: AssetImage('assets/images/compass.png'),
-                fit: BoxFit.cover)),
-      ),
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Qiblah direction image fixed at the top
+        Positioned(
+          top: 0,
+          child: Image.asset('assets/images/kaabafixed.png', height: 100),
+        ),
+        // Rotating needle
+        AnimatedRotation(
+          turns: (snapshot.data!.angle - snapshot.data!.qiblahOffset) / 360,
+          duration: Duration(milliseconds: widget.rotationSpeed!),
+          child: Container(
+            height:
+                widget.height ?? MediaQuery.of(context).size.shortestSide * 0.8,
+            width:
+                widget.width ?? MediaQuery.of(context).size.shortestSide * 0.8,
+            decoration: const BoxDecoration(
+                image: DecorationImage(
+                    image: AssetImage('assets/images/compass.png'),
+                    fit: BoxFit.cover)),
+          ),
+        ),
+      ],
     );
   }
 }
 
 /// Calculating compass Model
-getCompassValues(double heading, double latitude, double longitude) {
+CompassModel getCompassValues(
+    double heading, double latitude, double longitude, String source) {
   double direction = heading;
   direction = direction < 0 ? (360 + direction) : direction;
 
-  double diff = direction - preValue;
-  if (diff.abs() > 180) {
-    if (preValue > direction) {
-      diff = 360 - (direction - preValue).abs();
-    } else {
-      diff = (360 - (preValue - direction).abs()).toDouble();
-      diff = diff * -1;
-    }
-  }
-
-  turns += (diff / 360);
-  preValue = direction;
+  double qiblahOffset = getQiblaDirection(latitude, longitude, direction);
 
   return CompassModel(
-      turns: -1 * turns,
-      angle: heading,
-      qiblahOffset: getQiblaDirection(latitude, longitude, heading));
+      turns: direction / 360,
+      angle: direction,
+      qiblahOffset: qiblahOffset,
+      source: source);
 }
 
 /// Model to store the sensor value
@@ -214,11 +262,11 @@ class CompassModel {
   double turns;
   double angle;
   double qiblahOffset;
+  String source;
 
   CompassModel(
-      {required this.turns, required this.angle, required this.qiblahOffset});
+      {required this.turns,
+      required this.angle,
+      required this.qiblahOffset,
+      required this.source});
 }
-
-
-/// Default widget if custom widget isn't provided
-
