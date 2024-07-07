@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -7,7 +6,6 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:smooth_compass_plus/utils/src/qibla_utils.dart';
 
 import '../smooth_compass_plus.dart';
-import 'widgets/error_widget.dart';
 
 double preValue = 0;
 double turns = 0;
@@ -80,12 +78,11 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
               },
             );
           });
-          accelerometerEvents.listen((AccelerometerEvent event) {
+          magnetometerEventStream().listen((MagnetometerEvent event) {
             double newHeading = atan2(event.y, event.x) * (180 / pi);
-            if (newHeading < 0) newHeading += 360;
+            // if (newHeading < 0) newHeading += 360;
             setState(() {
-              currentHeading =
-                  previousHeading + 0.1 * (newHeading - previousHeading);
+              currentHeading = newHeading;
               previousHeading = currentHeading;
             });
           });
