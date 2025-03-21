@@ -50,14 +50,7 @@ class _Compass {
         _internalUpdateController.stream.listen((value) {
       if (interval != null) {
         DateTime instant = DateTime.now();
-        int difference = instant
-            .difference(compassStreamSubscription!.lastUpdated!)
-            .inMicroseconds;
-        if (difference < interval.inMicroseconds) {
-          return;
-        } else {
-          compassStreamSubscription.lastUpdated = instant;
-        }
+        compassStreamSubscription?.lastUpdated = instant;
       }
 
       compassStreamController!.add(getCompassValues(value.angle,
