@@ -27,9 +27,13 @@ class SmoothCompassWidget extends StatefulWidget {
   final Widget? errorLocationServiceWidget;
   final Widget? errorLocationPermissionWidget;
   final bool forceGPS;
+  final Widget? calibrationWidget;
+  final double calibrationThreshold;
+  final Widget? qiblahKaabaWidget;
+  final Widget? qiblahNeedleWidget;
 
   const SmoothCompassWidget({
-    Key? key,
+    super.key,
     this.compassBuilder,
     this.compassAsset,
     this.rotationSpeed = 400,
@@ -40,7 +44,11 @@ class SmoothCompassWidget extends StatefulWidget {
     this.errorLocationPermissionWidget,
     this.loadingAnimation,
     this.forceGPS = false,
-  }) : super(key: key);
+    this.calibrationWidget,
+    this.calibrationThreshold = 8,
+    this.qiblahKaabaWidget,
+    this.qiblahNeedleWidget,
+  });
 
   @override
   State<SmoothCompassWidget> createState() => _SmoothCompassWidgetState();
@@ -87,11 +95,12 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
           magnetometerEventStream().listen((MagnetometerEvent event) {
             double newHeading = atan2(event.y, event.x) * (180 / pi);
             // if (newHeading < 0) newHeading += 360;
-            if (mounted)
+            if (mounted) {
               setState(() {
                 currentHeading = newHeading;
                 previousHeading = currentHeading;
               });
+            }
           });
         }
       });
@@ -129,11 +138,12 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
               magnetometerEventStream().listen((MagnetometerEvent event) {
                 double newHeading = atan2(event.y, event.x) * (180 / pi);
                 // if (newHeading < 0) newHeading += 360;
-                if (mounted)
+                if (mounted) {
                   setState(() {
                     currentHeading = newHeading;
                     previousHeading = currentHeading;
                   });
+                }
               });
             }
           });
@@ -202,10 +212,7 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                         child: CircularProgressIndicator(),
                       );
               }
-              return widget.compassBuilder == null
-                  ? _defaultWidget(snapshot, context)
-                  : widget.compassBuilder!(
-                      context, snapshot, widget.compassAsset ?? Container());
+              return _buildCompassLayout(context, snapshot);
             },
           )
         : FutureBuilder(
@@ -238,10 +245,7 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                               child: CircularProgressIndicator(),
                             );
                     }
-                    return widget.compassBuilder == null
-                        ? _defaultWidget(snapshot, context)
-                        : widget.compassBuilder!(context, snapshot,
-                            widget.compassAsset ?? Container());
+                    return _buildCompassLayout(context, snapshot);
                   },
                 );
               }
@@ -363,14 +367,8 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                                               return Text(
                                                   snapshot.error.toString());
                                             }
-                                            return widget.compassBuilder == null
-                                                ? _defaultWidget(
-                                                    snapshot, context)
-                                                : widget.compassBuilder!(
-                                                    context,
-                                                    snapshot,
-                                                    _defaultWidget(
-                                                        snapshot, context));
+                                            return _buildCompassLayout(
+                                                context, snapshot);
                                           } else {
                                             if (snapshot.connectionState ==
                                                 ConnectionState.waiting) {
@@ -384,30 +382,8 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                                               return Text(
                                                   snapshot.error.toString());
                                             }
-                                            return widget.compassBuilder == null
-                                                ? AnimatedRotation(
-                                                    turns:
-                                                        snapshot.data!.turns *
-                                                            -1,
-                                                    duration: Duration(
-                                                        milliseconds: widget
-                                                            .rotationSpeed!),
-                                                    child: widget.compassAsset!,
-                                                  )
-                                                : widget.compassBuilder!(
-                                                    context,
-                                                    snapshot,
-                                                    AnimatedRotation(
-                                                      turns:
-                                                          snapshot.data!.turns *
-                                                              -1,
-                                                      duration: Duration(
-                                                          milliseconds: widget
-                                                              .rotationSpeed!),
-                                                      child:
-                                                          widget.compassAsset!,
-                                                    ),
-                                                  );
+                                            return _buildCompassLayout(
+                                                context, snapshot);
                                           }
                                         },
                                       );
@@ -434,10 +410,7 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                           if (snapshot.hasError) {
                             return Text(snapshot.error.toString());
                           }
-                          return widget.compassBuilder == null
-                              ? _defaultWidget(snapshot, context)
-                              : widget.compassBuilder!(context, snapshot,
-                                  _defaultWidget(snapshot, context));
+                          return _buildCompassLayout(context, snapshot);
                         } else {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {
@@ -449,23 +422,7 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
                           if (snapshot.hasError) {
                             return Text(snapshot.error.toString());
                           }
-                          return widget.compassBuilder == null
-                              ? AnimatedRotation(
-                                  turns: snapshot.data!.turns * -1,
-                                  duration: Duration(
-                                      milliseconds: widget.rotationSpeed!),
-                                  child: widget.compassAsset!,
-                                )
-                              : widget.compassBuilder!(
-                                  context,
-                                  snapshot,
-                                  AnimatedRotation(
-                                    turns: snapshot.data!.turns * -1,
-                                    duration: Duration(
-                                        milliseconds: widget.rotationSpeed!),
-                                    child: widget.compassAsset!,
-                                  ),
-                                );
+                          return _buildCompassLayout(context, snapshot);
                         }
                       },
                     );
@@ -475,18 +432,201 @@ class _SmoothCompassWidgetState extends State<SmoothCompassWidget> {
   ///default widget if custom widget isn't provided
   Widget _defaultWidget(
       AsyncSnapshot<CompassModel> snapshot, BuildContext context) {
-    return AnimatedRotation(
-      turns: snapshot.data!.turns,
-      duration: Duration(milliseconds: widget.rotationSpeed!),
-      child: Container(
-        height: widget.height ?? MediaQuery.of(context).size.shortestSide * 0.8,
-        width: widget.width ?? MediaQuery.of(context).size.shortestSide * 0.8,
-        decoration: const BoxDecoration(
+    if (widget.isQiblahCompass == true) {
+      return _buildQiblahLayout(snapshot, context);
+    }
+    return _buildClassicCompass(snapshot, context);
+  }
+
+  Widget _buildClassicCompass(
+      AsyncSnapshot<CompassModel> snapshot, BuildContext context) {
+    final Widget child = widget.compassAsset ??
+        Container(
+          height:
+              widget.height ?? MediaQuery.of(context).size.shortestSide * 0.8,
+          width: widget.width ?? MediaQuery.of(context).size.shortestSide * 0.8,
+          decoration: const BoxDecoration(
             image: DecorationImage(
-                image: AssetImage('assets/images/compass.png'),
-                fit: BoxFit.cover)),
+              image: AssetImage(
+                  'packages/smooth_compass_plus/assets/images/compass.png'),
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+    final double turnsValue = widget.compassAsset == null
+        ? snapshot.data!.turns
+        : snapshot.data!.turns * -1;
+    return AnimatedRotation(
+      turns: turnsValue,
+      duration: Duration(milliseconds: widget.rotationSpeed!),
+      child: child,
+    );
+  }
+
+  Widget _buildQiblahLayout(
+      AsyncSnapshot<CompassModel> snapshot, BuildContext context) {
+    final CompassModel data = snapshot.data!;
+    final double normalizedQiblah = _normalizeAngle(data.qiblahOffset);
+    final double normalizedHeading = _normalizeAngle(data.angle);
+    double relativeAngle = normalizedQiblah - normalizedHeading;
+    relativeAngle = ((relativeAngle + 540) % 360) - 180;
+    final double relativeTurns = relativeAngle / 360;
+
+    final Size screenSize = MediaQuery.of(context).size;
+    final double availableHeight =
+        widget.height ?? screenSize.shortestSide * 0.8;
+    final double availableWidth = widget.width ?? screenSize.shortestSide * 0.8;
+    final double size = min(availableHeight, availableWidth);
+
+    final Widget background =
+        widget.compassAsset ?? _defaultCompassBackground(size);
+    final Widget kaaba = widget.qiblahKaabaWidget ?? _defaultKaabaWidget(size);
+    final Widget needle =
+        widget.qiblahNeedleWidget ?? _defaultNeedleWidget(size);
+
+    return SizedBox(
+      width: widget.width ?? size,
+      height: widget.height ?? size,
+      child: Stack(
+        alignment: Alignment.center,
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          SizedBox(
+            width: size,
+            height: size,
+            child: background,
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                height: size * 0.35,
+                child: kaaba,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: size,
+            height: size,
+            child: AnimatedRotation(
+              turns: relativeTurns,
+              duration: Duration(milliseconds: widget.rotationSpeed!),
+              child: needle,
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _defaultCompassBackground(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage(
+              'packages/smooth_compass_plus/assets/images/compass.png'),
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+
+  Widget _defaultKaabaWidget(double size) {
+    return SizedBox(
+      height: size * 0.3,
+      child: const FittedBox(
+        fit: BoxFit.contain,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.account_balance,
+              color: Colors.black87,
+              size: 48,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'اتجاه الكعبة',
+              style: TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _defaultNeedleWidget(double size) {
+    return SizedBox(
+      height: size * 0.9,
+      child: Image.asset(
+        'packages/smooth_compass_plus/assets/images/needle.png',
+        fit: BoxFit.contain,
+      ),
+    );
+  }
+
+  Widget _buildCompassLayout(
+      BuildContext context, AsyncSnapshot<CompassModel> snapshot) {
+    final Widget defaultWidget = _defaultWidget(snapshot, context);
+    final Widget composed = widget.compassBuilder == null
+        ? defaultWidget
+        : widget.compassBuilder!(context, snapshot, defaultWidget);
+    return _wrapWithCalibration(composed, snapshot.data);
+  }
+
+  Widget _wrapWithCalibration(Widget child, CompassModel? data) {
+    if (_shouldShowCalibration(data)) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          widget.calibrationWidget!,
+          const SizedBox(height: 16),
+          child,
+        ],
+      );
+    }
+    return child;
+  }
+
+  bool _shouldShowCalibration(CompassModel? data) {
+    if (widget.calibrationWidget == null ||
+        !(widget.isQiblahCompass ?? false) ||
+        data == null) {
+      return false;
+    }
+    return _angleDifference(data.qiblahOffset, data.angle).abs() >=
+        widget.calibrationThreshold;
+  }
+
+  double _normalizeAngle(double value) {
+    if (value.isNaN || value.isInfinite) {
+      return 0;
+    }
+    double normalized = value % 360;
+    if (normalized < 0) {
+      normalized += 360;
+    }
+    return normalized;
+  }
+
+  double _angleDifference(double target, double current) {
+    final double normalizedTarget = _normalizeAngle(target);
+    final double normalizedCurrent = _normalizeAngle(current);
+    double delta = normalizedTarget - normalizedCurrent;
+    if (delta > 180) {
+      delta -= 360;
+    } else if (delta < -180) {
+      delta += 360;
+    }
+    return delta;
   }
 }
 
